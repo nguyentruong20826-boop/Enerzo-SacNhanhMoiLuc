@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Enerzo – Tìm trạm sạc nhanh chóng</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+<style>
+:root { --brand:#15803d; --accent:#10b981; }
+
+/* CSS mapStyleSwitcher */
+#mapStyleSwitcher {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0;
+}
+#mapStyleSwitcher button {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+#mapStyleSwitcher button.active {
+  background: var(--brand);
+  color: #fff;
+}
+
+/* Các CSS cũ của bạn */
+body { font-family:Inter, sans-serif; margin:0; background:#f3f4f6; color:#0f172a; }
+header { background:linear-gradient(90deg,var(--brand),#166534); color:#fff; padding:14px 16px; display:flex; align-items:center; gap:12px; box-shadow:0 2px 6px rgba(2,6,23,0.08); }
+header .title { font-size:18px; font-weight:700; }
+main { padding:14px; padding-bottom:84px; }
+#map { height:360px; border-radius:12px; box-shadow:0 6px 18px rgba(2,6,23,0.08); overflow:hidden; }
+.controls { display:flex; gap:8px; align-items:center; margin-top:10px; }
+.btn { background:var(--brand); color:#fff; padding:8px 12px; border-radius:10px; border:none; cursor:pointer; font-weight:600; }
+.btn.ghost { background:#fff; color:var(--brand); border:1px solid #e2e8f0; }
+.panel { background:#fff; padding:12px; border-radius:12px; box-shadow:0 6px 18px rgba(2,6,23,0.04); margin-top:12px; }
+.station-item { display:flex; justify-content:space-between; align-items:center; padding:10px; border-radius:10px; border:1px solid #e6eef6; margin-bottom:8px; }
+.station-meta { font-size:13px; color:#334155; }
+footer.nav { position:fixed; left:0; right:0; bottom:0; background:#fff; border-top:1px solid #e6eef6; display:flex; justify-content:space-around; padding:10px 0; box-shadow:0 -4px 18px rgba(2,6,23,0.04); }
+footer.nav button { background:none; border:none; color:var(--brand); font-weight:700; cursor:pointer; }
+footer.nav button.active { color:#0f172a; }
+.section { display:none; }
+.section.active { display:block; }
+.small { font-size:13px; color:#475569; }
+.badge { background:var(--accent); color:#fff; padding:6px 8px; border-radius:8px; font-weight:700; }
+.empty { color:#64748b; text-align:center; padding:18px; }
+.booking-item { border:1px solid #eef2ff; padding:10px; border-radius:10px; margin-bottom:8px; background:#fff; }
+.booking-meta { font-size:13px; color:#475569; }
+
+/* Modal */
+.modal { display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5); justify-content:center; align-items:center; }
+.modal-content { background:#fff; padding:20px; border-radius:12px; width:300px; box-shadow:0 6px 18px rgba(2,6,23,0.2); display:flex; flex-direction:column; gap:12px; }
+.modal-content input, .modal-content select { padding:8px 12px; border-radius:8px; border:1px solid #ccc; width:100%; }
+.modal-content button { padding:10px 12px; border-radius:8px; border:none; background:var(--brand); color:#fff; font-weight:600; cursor:pointer; }
+.modal-content .close-btn { background:#f87171; }
+</style>
+</head>
+<body>
+<header>
+<div class="title">Enerzo – Tìm trạm sạc nhanh chóng</div>
+<div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+<div class="small" style="color:rgba(255,255,255,0.9)">⭐ <span id="points-badge">0</span> điểm</div>
+<button id="login-btn" class="btn ghost">Đăng nhập</button>
+<button id="logout-btn" class="btn ghost" style="display:none;">Đăng xuất</button>
+</div>
+</header>
+<main>
+<section id="home" class="section active">
+  <div id="map"></div>
+
+  <!-- Bộ chọn kiểu bản đồ -->
+  <div id="mapStyleSwitcher">
+    <button id="streetBtn" class="active">Đường phố</button>
+    <button id="satelliteBtn">Vệ tinh</button>
+    <button id="terrainBtn">Địa hình</button>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="locate-btn">📍 Quét vị trí</button>
+    <button class="btn ghost" id="refresh-markers">↻ Cập nhật trạm</button>
+  </div>
+  <div class="panel">
+    <h3 style="margin:0 0 8px 0">Trạm sạc gần bạn</h3>
+    <div id="stations-list"></div>
+  </div>
+</section>
+<div class="controls">
+<button class="btn" id="locate-btn">📍 Quét vị trí</button>
+<button class="btn ghost" id="refresh-markers">↻ Cập nhật trạm</button>
+</div>
+<div class="panel">
+<h3 style="margin:0 0 8px 0">Trạm sạc gần bạn</h3>
+<div id="stations-list"></div>
+</div>
+</section>
+<section id="bookings" class="section">
+<div class="panel">
+<h3>📅 Đặt chỗ của tôi</h3>
+<div id="bookings-list"></div>
+</div>
+</section>
+<section id="promo" class="section">
+<div class="panel">
+<h3>🎁 Khuyến mãi</h3>
+<p>Nhập mã <b>ENERZO20</b> để giảm 20% khi đặt chỗ.</p>
+<P>Nhập mã <b>CDLOGT28GH</b> để giảm 50% khi đặt chỗ.</P>
+<p>Nhập mã <b>7SHARKS</b> để giảm 70% khi đặt chỗ.</p>
+</div>
+</section>
+<section id="points" class="section">
+<div class="panel">
+<h3>⭐ Tích điểm</h3>
+<p class="small">Điểm hiện có được lưu trên thiết bị (localStorage). Bạn nhận điểm khi đặt chỗ.</p>
+<div style="margin-top:8px"><span class="badge" id="points-big">0</span></div>
+</div>
+</section>
+<section id="profile" class="section">
+<div class="panel">
+<h3>👤 Cá nhân</h3>
+<p class="small">Tên: <b id="user-name">Khách vãng lai</b></p>
+<p class="small">Email: <span id="user-email">Chưa đăng nhập</span></p>
+</div>
+</section>
+</main>
+<footer class="nav">
+<button data-target="home" class="active">🏠 Trang chủ</button>
+<button data-target="bookings">📅 Đặt chỗ</button>
+<button data-target="promo">🎁 Khuyến mãi</button>
+<button data-target="points">⭐ Tích điểm</button>
+<button data-target="profile">👤 Cá nhân</button>
+</footer>
+
+<!-- Modal Login -->
+<div id="login-modal" class="modal">
+  <div class="modal-content">
+    <h3>Đăng nhập Enerzo</h3>
+    <input type="text" id="login-name" placeholder="Tên của bạn">
+    <input type="email" id="login-email" placeholder="Email">
+    <button id="submit-login">Đăng nhập</button>
+    <button id="close-login" class="close-btn">Đóng</button>
+  </div>
+</div>
+
+<!-- Modal Thanh Toán -->
+<div id="payment-modal" class="modal">
+  <div class="modal-content">
+    <h3>Thanh toán đặt chỗ</h3>
+
+    <input type="text" id="promo-code" placeholder="Nhập mã khuyến mãi (nếu có)">
+    <select id="payment-method">
+      <option value="VNPay">VNPay</option>
+      <option value="MoMo">MoMo</option>
+      <option value="Thẻ">Thẻ</option>
+    </select>
+
+    <button id="confirm-payment">Xác nhận</button>
+    <button id="close-payment" class="close-btn">Hủy</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="https://unpkg.com/leaflet-semicircle"></script>
+<script>
+let stations=[
+{id:1,name:'VinFast - Thủ Đức',lat:10.8546,lon:106.7840,slots:4,price:15},
+{id:2,name:'EVN Station - Q9',lat:10.8375,lon:106.7768,slots:2,price:12},
+{id:3,name:'Điện Quang - Bình Thạnh',lat:10.8038,lon:106.7183,slots:6,price:10},
+{id:4,name:'ChargeHub - Linh Trung',lat:10.8721,lon:106.7832,slots:3,price:18},
+{id:5,name:'VinFast Bãi đỗ xe 882',lat:10.8218,lon:106.7895,slots:5,price:15},
+{id:6,name:'VinFast Bãi đỗ xe Phú Hữu',lat:10.8225,lon:106.7970,slots:4,price:15},
+{id:7,name:'VinFast Chung cư Sky 9 CT1',lat:10.8210,lon:106.8015,slots:6,price:15},
+{id:8,name:'VinFast PVOIL Phú Hữu',lat:10.8190,lon:106.8050,slots:3,price:12},
+{id:9,name:'VinFast 9/1 Võ Văn Hát',lat:10.8285,lon:106.8130,slots:4,price:15},
+{id:10,name:'VinFast Bãi đỗ xe Long Trường',lat:10.8305,lon:106.8200,slots:5,price:15},
+{id:11,name:'VinFast Tư nhân Long Trường',lat:10.8320,lon:106.8245,slots:3,price:12},
+{id:12,name:'Trạm sạc 120 đường 11 - Trường Thọ',lat:10.8485,lon:106.7510,slots:2,price:10},
+{id:13,name:'VinFast Vinhomes Grand Park',lat:10.8425,lon:106.8280,slots:8,price:18},
+{id:14,name:'VinFast Chung cư The Eastern',lat:10.8255,lon:106.8075,slots:5,price:15},
+{id:15,name:'Trạm sạc Ava - Trường Thọ',lat:10.8490,lon:106.7530,slots:3,price:12}
+];
+
+let bookings=JSON.parse(localStorage.getItem('ez_bookings')||'[]');
+let points=parseInt(localStorage.getItem('ez_points')||'0',10);
+let currentUser=JSON.parse(localStorage.getItem('ez_user')||'null');
+let pendingStation=null;
+let userLocation=null;
+
+const loginBtn=document.getElementById('login-btn');
+const logoutBtn=document.getElementById('logout-btn');
+
+function updateUI(){
+  document.getElementById('points-badge').textContent=points;
+  document.getElementById('points-big').textContent=points;
+  if(currentUser){
+    document.getElementById('user-name').textContent=currentUser.name;
+    document.getElementById('user-email').textContent=currentUser.email;
+    loginBtn.style.display='none'; logoutBtn.style.display='inline-block';
+  } else {
+    document.getElementById('user-name').textContent='Khách vãng lai';
+    document.getElementById('user-email').textContent='Chưa đăng nhập';
+    loginBtn.style.display='inline-block'; logoutBtn.style.display='none';
+  }
+}
+updateUI();
+
+// ===== Modal login =====
+loginBtn.addEventListener('click',()=>{ document.getElementById('login-modal').style.display='flex'; });
+document.getElementById('close-login').addEventListener('click',()=>{ document.getElementById('login-modal').style.display='none'; });
+document.getElementById('submit-login').addEventListener('click',()=>{
+  const name=document.getElementById('login-name').value.trim();
+  const email=document.getElementById('login-email').value.trim();
+  if(name && email){
+    currentUser={name,email};
+    localStorage.setItem('ez_user',JSON.stringify(currentUser));
+    updateUI();
+    document.getElementById('login-modal').style.display='none';
+    alert('Đăng nhập thành công!');
+  } else alert('Vui lòng nhập đủ tên và email!');
+});
+logoutBtn.addEventListener('click',()=>{
+  currentUser=null;
+  localStorage.removeItem('ez_user');
+  updateUI();
+  alert('Đã đăng xuất!');
+});
+
+// ===== Map init =====
+const map=L.map('map').setView([10.8546,106.7840],13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
+// ===== Vẽ vị trí người dùng (chấm xanh + bóng hướng) =====
+let userMarker = null;
+let userCone = null;
+
+function updateUserMarker(lat, lon, heading = 0) {
+  if (userMarker) map.removeLayer(userMarker);
+  if (userCone) map.removeLayer(userCone);
+
+  // chấm xanh
+  userMarker = L.circleMarker([lat, lon], {
+    radius: 10,
+    color: "#2563eb",
+    fillColor: "#2563eb",
+    fillOpacity: 1,
+    weight: 2
+  }).addTo(map);
+
+  // bóng hướng đi (90° là góc mở)
+  if (L.semiCircle) {
+    userCone = L.semiCircle([lat, lon], {
+      radius: 80,
+      color: "#3b82f6",
+      fillColor: "#3b82f6",
+      fillOpacity: 0.2
+    }).setDirection(heading, 90).addTo(map);
+  }
+}
+// ===== Helpers =====
+function distance(lat1, lon1, lat2, lon2){
+  function toRad(v){return v*Math.PI/180;}
+  const R=6371; // km
+  const dLat=toRad(lat2-lat1), dLon=toRad(lon2-lon1);
+  const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+// ===== Booking =====
+window.bookFromMap = function(id){
+  if(!currentUser){alert('Vui lòng đăng nhập!'); return;}
+  const st=stations.find(s=>s.id===id);
+  if(st.slots<=0){alert('Hết chỗ trống!'); return;}
+  pendingStation=st;
+  document.getElementById('payment-modal').style.display='flex';
+}
+document.getElementById('close-payment').addEventListener('click',()=>{
+  document.getElementById('payment-modal').style.display='none';
+  pendingStation=null;
+});
+document.getElementById('confirm-payment').addEventListener('click', () => {
+  if (!pendingStation) return;
+  let st = pendingStation;
+  if (st.slots <= 0) { alert('Hết chỗ trống!'); return; }
+  st.slots--;
+
+  // --- Tính giá và mã khuyến mãi (giữ logic cũ) ---
+  let price = st.price;
+  const code = document.getElementById('promo-code').value.trim();
+  if (code === "ENERZO20") price = price * 0.8;
+  else if (code === "CDLOGT28GH") price = price * 0.5;
+  else if (code === "7SHARKS") price = price * 0.3;
+
+  const method = document.getElementById('payment-method').value;
+  const expireTime = Date.now() + 30 * 60 * 1000; // 30 phút
+
+  // --- Lưu đặt chỗ ---
+  bookings.push({
+    id: Date.now(),
+    station: st.name,
+    price: price,
+    method: method,
+    status: "Đã thanh toán",
+    date: new Date().toLocaleString(),
+    expire: expireTime
+  });
+
+  // --- Cập nhật điểm và lưu localStorage ---
+  points += 5;
+  localStorage.setItem('ez_bookings', JSON.stringify(bookings));
+  localStorage.setItem('ez_points', points);
+
+  // --- Cập nhật UI ---
+  updateUI();
+  renderBookings();
+  renderStations();
+
+  // ẩn modal thanh toán
+  document.getElementById('payment-modal').style.display = 'none';
+  pendingStation = null;
+
+  // --- Chỉ đường: xóa route cũ rồi vẽ route mới (nếu đã có vị trí người dùng) ---
+  if (userLocation) {
+    // vẽ chấm xanh + bóng hướng (nếu bạn đã định nghĩa updateUserMarker)
+    if (typeof updateUserMarker === 'function') {
+      updateUserMarker(userLocation.lat, userLocation.lon, 0);
+    }
+
+    // xóa route cũ nếu có
+    if (window.currentRoute) {
+      try { map.removeControl(window.currentRoute); } catch(e) {}
+      window.currentRoute = null;
+    }
+
+    // tạo route mới
+    window.currentRoute = L.Routing.control({
+      waypoints: [
+        L.latLng(userLocation.lat, userLocation.lon),
+        L.latLng(st.lat, st.lon)
+      ],
+      lineOptions: { styles: [{ color: "#2563eb", weight: 6 }] },
+      routeWhileDragging: false,
+      addWaypoints: false,
+      draggableWaypoints: false,
+      show: false
+    }).addTo(map);
+  }
+
+  Swal.fire({
+  icon: 'success',
+  title: 'ĐẶT CHỖ THÀNH CÔNG',
+  text: `Bạn đã đặt chỗ thành công tại ${st.name}! Thanh toán bằng ${method}.`,
+  confirmButtonText: 'OK',
+  confirmButtonColor: '#3085d6'
+});
+
+});
+
+// ===== Hủy đặt chỗ =====
+function cancelBooking(id){
+  const idx=bookings.findIndex(b=>b.id===id);
+  if(idx!==-1){
+    const st=stations.find(s=>s.name===bookings[idx].station);
+    if(st) st.slots++;
+    bookings.splice(idx,1);
+
+// Trừ điểm khi hủy
+    points = Math.max(0, points - 5);
+    localStorage.setItem('ez_points', points);
+
+    localStorage.setItem('ez_bookings',JSON.stringify(bookings));
+    updateUI(); renderBookings(); renderStations();
+
+    // >>> XÓA ROUTE (CHỈ DẪN) <<<
+    if (window.currentRoute) {
+      try { map.removeControl(window.currentRoute); } catch(e) {}
+      window.currentRoute = null;
+    }
+
+    // >>> HIỆN POPUP SWEETALERT2 <<<
+    Swal.fire({
+      icon: 'error',
+      title: 'ĐÃ HỦY ĐẶT CHỖ',
+      text: `Bạn đã hủy đặt chỗ tại ${st.name} và bị trừ 5 điểm.`,
+      confirmButtonText: 'Đóng',
+      confirmButtonColor: '#d33'
+    });
+  }
+}
+// ===== Xóa các đặt chỗ hết hạn =====
+function cleanExpiredBookings(){
+  const now=Date.now();
+  let changed=false;
+  bookings=bookings.filter(b=>{
+    if(b.expire && now>b.expire){
+      const st=stations.find(s=>s.name===b.station);
+      if(st) st.slots++;
+      changed=true;
+      return false;
+    }
+    return true;
+  });
+  if(changed){
+    localStorage.setItem('ez_bookings',JSON.stringify(bookings));
+    renderBookings(); renderStations();
+  }
+}
+setInterval(cleanExpiredBookings,60000);
+
+// ===== Render đặt chỗ =====
+function renderBookings(){
+  const list=document.getElementById('bookings-list');
+  list.innerHTML='';
+  if(bookings.length===0){list.innerHTML='<div class="empty">Chưa có đặt chỗ nào</div>'; return;}
+  bookings.forEach(b=>{
+    const remain = Math.max(0, Math.floor((b.expire-Date.now())/60000));
+    const item=document.createElement('div');
+    item.className='booking-item';
+    item.innerHTML=`
+      <div>
+        <b>${b.station}</b><br>
+        <span class="booking-meta">${b.date} — còn ${remain} phút<br>
+        Giá: ${b.price}k VND — ${b.status} (${b.method})</span>
+      </div>
+      <button class="btn ghost">Hủy</button>
+    `;
+    item.querySelector('button').addEventListener('click',()=>cancelBooking(b.id));
+    list.appendChild(item);
+  });
+}
+
+// ===== Render trạm sạc =====
+function renderStations(){
+  document.getElementById('stations-list').innerHTML='';
+  map.eachLayer(l=>{if(l instanceof L.Marker && !l._isTile) map.removeLayer(l);});
+  let sortedStations=[...stations];
+  if(userLocation){
+    sortedStations.sort((a,b)=>distance(userLocation.lat,userLocation.lon,a.lat,a.lon)-
+                              distance(userLocation.lat,userLocation.lon,b.lat,b.lon));
+  }
+  sortedStations.forEach(st=>{
+    const item=document.createElement('div');
+    let extra='';
+    if(userLocation){
+      extra = ` — ${distance(userLocation.lat,userLocation.lon,st.lat,st.lon).toFixed(1)} km`;
+    }
+    item.className='station-item';
+    item.innerHTML=`<div><b>${st.name}</b><br><span class='station-meta'>${st.slots} chỗ trống — ${st.price}k VND${extra}</span></div><button class='btn'>Đặt</button>`;
+    item.querySelector('button').addEventListener('click',()=>bookFromMap(st.id));
+    document.getElementById('stations-list').appendChild(item);
+    const marker=L.marker([st.lat,st.lon]).addTo(map);
+    marker.bindPopup(`<b>${st.name}</b><br>${st.slots} chỗ trống — ${st.price}k VND<br><button class='btn' onclick='bookFromMap(${st.id})'>Đặt chỗ</button>`);
+  });
+}
+
+// ===== Auto locate =====
+function locateUser(auto=false){
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(pos=>{
+      const {latitude,longitude}=pos.coords;
+      userLocation={lat:latitude,lon:longitude};
+      map.setView([latitude,longitude],15);
+      L.circle([latitude,longitude],{radius:50,color:'blue'}).addTo(map).bindPopup('Bạn đang ở đây').openPopup();
+      renderStations();
+    }, err=>{
+      if(auto){ map.setView([10.8546,106.7840],13); renderStations(); }
+      console.warn("Không lấy được GPS:",err.message);
+    });
+  }
+}
+document.getElementById('locate-btn').addEventListener('click',()=>locateUser(false));
+document.getElementById('refresh-markers').addEventListener('click',renderStations);
+locateUser(true);
+
+// ===== Điều hướng =====
+function showSection(sectionId){
+  document.querySelectorAll('footer.nav button').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.getElementById(sectionId).classList.add('active');
+  document.querySelector(`footer.nav button[data-target="${sectionId}"]`)?.classList.add('active');
+}
+document.querySelectorAll('footer.nav button').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    window.location.hash = btn.dataset.target;
+    showSection(btn.dataset.target);
+  });
+});
+window.addEventListener('load',()=>{
+  const hash = window.location.hash.replace('#','');
+  if(hash) showSection(hash);
+  renderStations(); renderBookings();
+});
+
+// ===== Bộ chọn kiểu bản đồ =====
+const baseLayers = {
+  street: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }),
+  satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles © Esri' }),
+  terrain: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: '© OpenTopoMap contributors' }),
+};
+
+// khởi tạo mặc định street
+let currentLayer = baseLayers.street.addTo(map);
+
+// hàm đổi lớp
+function switchBase(layerName, btnId) {
+  if (currentLayer) map.removeLayer(currentLayer);
+  currentLayer = baseLayers[layerName].addTo(map);
+
+  // active button
+  document.querySelectorAll('#mapStyleSwitcher button').forEach(b => b.classList.remove('active'));
+  document.getElementById(btnId).classList.add('active');
+}
+
+// gán sự kiện cho nút
+document.getElementById('streetBtn').addEventListener('click', () => switchBase('street', 'streetBtn'));
+document.getElementById('satelliteBtn').addEventListener('click', () => switchBase('satellite', 'satelliteBtn'));
+document.getElementById('terrainBtn').addEventListener('click', () => switchBase('terrain', 'terrainBtn'));
+</script>
+
